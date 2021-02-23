@@ -19,6 +19,7 @@ void BxxCraft::OnRender() {
 
 	ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
 	m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+	//m_infoQueue->AddMessage(D3D12_MESSAGE_CATEGORY_EXECUTION, D3D12_MESSAGE_SEVERITY_ERROR, D3D12_MESSAGE_ID_ATOMICCOPYBUFFER_INVALID_DST_RESOURCE, "hello");
 	//Present the frame.
 	ThrowIfFailed(m_swapChain->Present(1, 0));
 	WaitForPreviousFrame();
@@ -34,10 +35,11 @@ void BxxCraft::LoadPipeline() {
 		// Enable debug layer 
 #ifdef _DEBUG
 		{
-			Microsoft::WRL::ComPtr<ID3D12Debug> debugController;
-			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
-				debugController->EnableDebugLayer();
+			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&m_debugController)))) {
+				m_debugController->EnableDebugLayer();
 				dxgiFactoryFlag |= DXGI_CREATE_FACTORY_DEBUG;
+				m_debugController->SetEnableGPUBasedValidation(TRUE);
+				m_debugController->SetEnableSynchronizedCommandQueueValidation(TRUE);
 			}
 		}
 #endif // _DEBUG
@@ -76,6 +78,32 @@ void BxxCraft::LoadPipeline() {
 				IID_PPV_ARGS(&m_device)
 			));
 		}
+#ifdef _DEBUG
+
+		if (m_useWarpDevice) {
+			Microsoft::WRL::ComPtr<IDXGIAdapter> warpAdapter;
+			ThrowIfFailed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter)));
+
+			ThrowIfFailed(D3D12CreateDevice(
+				warpAdapter.Get(),
+				D3D_FEATURE_LEVEL_11_0,
+				IID_PPV_ARGS(&m_debugDevice)
+			));
+
+		}
+		else {
+			Microsoft::WRL::ComPtr<IDXGIAdapter1> hardwareAdapter;
+			GetHardwareAdapter(m_factory.Get(), &hardwareAdapter);
+
+			ThrowIfFailed(D3D12CreateDevice(
+				hardwareAdapter.Get(),
+				D3D_FEATURE_LEVEL_11_0,
+				IID_PPV_ARGS(&m_debugDevice)
+			));
+		}
+
+#endif // _DEBUG
+
 	}
 
 	//Create Command Objects
@@ -267,19 +295,124 @@ void BxxCraft::LoadAssets() {
 
 	//Load Scene
 	{
+		std::array<Mesh::ColoredVertex, 4>* squareVertices = new std::array<Mesh::ColoredVertex, 4>{
+			Mesh::ColoredVertex({ { 0.5f, 0.5f * GetAspectRatio(), 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }),
+			{ { 0.5f, -0.5f * GetAspectRatio(), 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+			{ { -0.5f, 0.5f * GetAspectRatio(), 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+			{ { -0.5f, -0.5f * GetAspectRatio(), 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
+		};
+
+		std::array<UINT, 6>* squareIndices = new std::array<UINT, 6>{
+			0, 1, 2,
+			1, 3, 2
+		};
 
 
+		UINT vertexBufferByteSize = static_cast<UINT>(4 * sizeof(Mesh::ColoredVertex));
+		UINT vertexByteSize = sizeof(Mesh::ColoredVertex);
+		UINT indexBufferByteSize = static_cast<UINT>(6 * sizeof(UINT));
+
+		UINT squareVertexCount = 4;
+		UINT squareIndexCount = 6;
+
+		//Create upload heap.
+		//Upload heaps used to upload data to the GPU, CPU can write to it, GPU can read from it.
+		//The application upload this heap to default heap
+		D3D12_HEAP_PROPERTIES uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+		D3D12_HEAP_PROPERTIES defaultHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+		D3D12_RESOURCE_DESC vertexHeapDesc = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferByteSize);
+		D3D12_RESOURCE_DESC indexHeapDesc = CD3DX12_RESOURCE_DESC::Buffer(indexBufferByteSize);
+
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&uploadHeapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&vertexHeapDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,			//GPU will read from this buffer and copy its contents to the default map
+			nullptr,									//optimized clear value pointer,
+			IID_PPV_ARGS(&m_vertexBufferUpload)
+		));
+		m_vertexBufferUpload->SetName(L"vertex buffer upload");
+
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&uploadHeapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&indexHeapDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,			//GPU will read from this buffer and copy its contents to the default map
+			nullptr,									//optimized clear value pointer,
+			IID_PPV_ARGS(&m_indexBufferUpload)
+		));
+		m_indexBufferUpload->SetName(L"index buffer upload");
+
+		//Create default heap.
+		//Default heap is memory on GPU. Only GPU has access to this memory.
+		//To get data into this heap, the application using an upload heap.
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&defaultHeapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&vertexHeapDesc,
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			nullptr,
+			IID_PPV_ARGS(&m_vertexBuffer)
+		));
+		m_vertexBuffer->SetName(L"vertex buffer default");
+
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&defaultHeapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&indexHeapDesc,
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			nullptr,
+			IID_PPV_ARGS(&m_indexBuffer)
+		));
+		m_indexBuffer->SetName(L"index buffer default");
+
+		m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+		m_vertexBufferView.StrideInBytes = sizeof(Mesh::ColoredVertex);
+		m_vertexBufferView.SizeInBytes = vertexBufferByteSize;
+
+		m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
+		m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+		m_indexBufferView.SizeInBytes = indexBufferByteSize;
+
+		D3D12_SUBRESOURCE_DATA vertexData = {};
+		vertexData.pData = reinterpret_cast<BYTE*>(squareVertices->data()); // pointer to our vertex array
+		vertexData.RowPitch = vertexBufferByteSize; // size of all our triangle vertex data
+		vertexData.SlicePitch = vertexBufferByteSize; // also the size of our triangle vertex data
+		UpdateSubresources(m_commandList.Get(), m_vertexBuffer.Get(), m_vertexBufferUpload.Get(), 0, 0, 1, &vertexData);
+
+		D3D12_SUBRESOURCE_DATA indexData = {};
+		indexData.pData = reinterpret_cast<BYTE*>(squareIndices->data()); // pointer to our vertex array
+		indexData.RowPitch = indexBufferByteSize; // size of all our triangle vertex data
+		indexData.SlicePitch = indexBufferByteSize; // also the size of our triangle vertex data
+		UpdateSubresources(m_commandList.Get(), m_indexBuffer.Get(), m_indexBufferUpload.Get(), 0, 0, 1, &indexData);
+
+		//UpdateSubresources(m_commandList.Get(), m_testBuffer.Get(), m_indexBufferUpload.Get(), 0, 0, 1, &indexData);
+
+		// transit the vertex buffer type from copy destination state to vertex buffer state
+		D3D12_RESOURCE_BARRIER vertexBufferResourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+			m_vertexBuffer.Get(),
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
+		);
+		m_commandList->ResourceBarrier(1, &vertexBufferResourceBarrier);
+
+		D3D12_RESOURCE_BARRIER indexBufferResourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+			m_indexBuffer.Get(),
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			D3D12_RESOURCE_STATE_INDEX_BUFFER
+		);
+		m_commandList->ResourceBarrier(1, &indexBufferResourceBarrier);
 	}
-
-	ThrowIfFailed(m_commandList->Close());
-
+	m_commandList->Close();
+	ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
+	m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 	//Create Synchronization Objects
 	{
 		// Create synchronization objects and wait until assets have been uploaded to the GPU.
 		ThrowIfFailed(m_device->CreateFence(
 			0,								//initial value
 			D3D12_FENCE_FLAG_NONE,
-			IID_PPV_ARGS(&_fence)
+			IID_PPV_ARGS(&m_fence)
 		));
 		m_fenceValue = 1;
 		m_fenceEvent = CreateEvent(
@@ -291,7 +424,6 @@ void BxxCraft::LoadAssets() {
 		ThrowIfFailed(m_fenceEvent);
 		WaitForPreviousFrame();
 	}
-
 	//Wait for the command list to execute.
 	//The application is reusing the same command list in main loop.
 	//Currently, we just wannt to wait for steup to complete before continuing.
@@ -313,7 +445,6 @@ void BxxCraft::PopulateCommandList() {
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 	m_commandList->RSSetViewports(1, &m_viewport);
 	m_commandList->RSSetScissorRects(1, &m_scissorRect);
-
 
 	// Indicate that the back buffer will be used as a render target.
 
@@ -341,26 +472,26 @@ void BxxCraft::PopulateCommandList() {
 		nullptr				//pRect
 	);
 	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	//m_commandList->IASetVertexBuffers(
-	//	0,					//start slot
-	//	1,					//number of view
-	//	&m_mesh->GetVertexBufferView()
-	//);
-	//m_commandList->IASetIndexBuffer(&m_mesh->GetIndexBufferView());
-	m_commandList->DrawInstanced(
-		3,			//vertex count per instance
-		1,			//instance count
-		0,			//start vertex location
-		0			//start instance location
+	m_commandList->IASetVertexBuffers(
+		0,					//start slot
+		1,					//number of view
+		&m_vertexBufferView
 	);
-	//m_commandList->DrawIndexedInstanced(
-	//	m_mesh->DrawArgs[L"plate"].indexCount,
-	//	1,					//instance count
-	//	0,					//start index location
-	//	0,					//base vertex location
-	//	0					//start instance location
+	m_commandList->IASetIndexBuffer(&m_indexBufferView);
+	//m_commandList->DrawInstanced(
+	//	3,			//vertex count per instance
+	//	1,			//instance count
+	//	0,			//start vertex location
+	//	0			//start instance location
 	//);
-
+	m_commandList->DrawIndexedInstanced(
+		6,					//indexCount,
+		1,					//instance count
+		0,					//start index location
+		0,					//base vertex location
+		0					//start instance location
+	);
+	
 	// Indicate that the back buffer will now be used to present.
 	CD3DX12_RESOURCE_BARRIER presentBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
 		m_renderTargets[m_frameIndex].Get(),
@@ -375,13 +506,13 @@ void BxxCraft::WaitForPreviousFrame() {
 	// Signal and increase the fence value.
 	const UINT64 fence = m_fenceValue;
 	ThrowIfFailed(m_commandQueue->Signal(
-		_fence.Get(),
+		m_fence.Get(),
 		fence
 	));
 	m_fenceValue++;
 
-	if (_fence->GetCompletedValue() < fence) {
-		ThrowIfFailed(_fence->SetEventOnCompletion(
+	if (m_fence->GetCompletedValue() < fence) {
+		ThrowIfFailed(m_fence->SetEventOnCompletion(
 			fence,
 			m_fenceEvent));
 		WaitForSingleObject(m_fenceEvent, INFINITE);

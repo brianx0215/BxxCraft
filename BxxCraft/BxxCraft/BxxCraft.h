@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BxxApplication.h"
-#include "Geometry.h"
+#include "Mesh.h"
 
 class BxxCraft : public BxxApplication {
 public:
@@ -47,6 +47,9 @@ private:
 	Microsoft::WRL::ComPtr<IDXGIFactory4> m_factory;
 	Microsoft::WRL::ComPtr<ID3D12Device> m_device;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSignature;
+	Microsoft::WRL::ComPtr<ID3D12Debug1> m_debugController;
+	Microsoft::WRL::ComPtr<ID3D12DebugDevice> m_debugDevice;
+	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_infoQueue;
 
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
 	Microsoft::WRL::ComPtr<ID3DBlob> m_vertexShader;
@@ -55,10 +58,17 @@ private:
 	std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputElementDescs;
 
 	//App resources
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_indexBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBufferUpload;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_indexBufferUpload;
+	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+	D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
+	
 
 	//Synchronization objects
 	UINT m_frameIndex;
 	HANDLE m_fenceEvent;
-	Microsoft::WRL::ComPtr<ID3D12Fence> _fence;
+	Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
 	UINT64 m_fenceValue;
 };
