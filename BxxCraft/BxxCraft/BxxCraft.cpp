@@ -1,18 +1,29 @@
 #include "BxxCraft.h"
+#include "InputController.h"
 
 BxxCraft::BxxCraft(UINT width, UINT height, std::wstring name, std::wstring title) :
 	BxxApplication(width, height, name, title),
 	m_frameIndex(0),
 	m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
 	m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
-	m_rtvDescriptorSize(0) {}
+	m_rtvDescriptorSize(0)
+{
+	s_FrameStartTick = 0;
+}
+
+float BxxCraft::s_frameDeltaTime;
+int64_t BxxCraft::s_FrameStartTick;
 
 void BxxCraft::OnInit() {
 	LoadPipeline();
 	LoadAssets();
+	InputController::Initialize(Win32Application::GetHwnd());
 }
 
-void BxxCraft::OnUpdate() {}
+void BxxCraft::OnUpdate() {
+	InputController::Update(s_frameDeltaTime);
+	InputController::IsAnyPressed();
+}
 
 void BxxCraft::OnRender() {
 	PopulateCommandList();
@@ -21,6 +32,9 @@ void BxxCraft::OnRender() {
 	m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 	//m_infoQueue->AddMessage(D3D12_MESSAGE_CATEGORY_EXECUTION, D3D12_MESSAGE_SEVERITY_ERROR, D3D12_MESSAGE_ID_ATOMICCOPYBUFFER_INVALID_DST_RESOURCE, "hello");
 	//Present the frame.
+	int64_t CurrentTick = TimingController::GetCurrentTick();
+	s_frameDeltaTime = static_cast<float>(TimingController::SecondsBetweenTicks(s_FrameStartTick, CurrentTick));
+	s_FrameStartTick = CurrentTick;
 	ThrowIfFailed(m_swapChain->Present(1, 0));
 	WaitForPreviousFrame();
 }
@@ -118,7 +132,7 @@ void BxxCraft::LoadPipeline() {
 		));
 
 		//Create Command Allocator
-		for (UINT i = 0; i < FrameCount; i++) {
+		for (UINT i = 0; i < FrameBufferSize; i++) {
 			ThrowIfFailed(m_device->CreateCommandAllocator(
 				D3D12_COMMAND_LIST_TYPE_DIRECT,
 				IID_PPV_ARGS(&m_commandAllocator[i])
@@ -138,7 +152,7 @@ void BxxCraft::LoadPipeline() {
 	//Create Swap Chain
 	{
 		DXGI_SWAP_CHAIN_DESC1 swapChainDesc = { };
-		swapChainDesc.BufferCount = FrameCount;
+		swapChainDesc.BufferCount = FrameBufferSize;
 		swapChainDesc.Width = m_width;
 		swapChainDesc.Height = m_height;
 		swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -164,7 +178,7 @@ void BxxCraft::LoadPipeline() {
 	{
 		//Create render target descriptor heaps
 		D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-		rtvHeapDesc.NumDescriptors = FrameCount;
+		rtvHeapDesc.NumDescriptors = FrameBufferSize;
 		rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 		rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 		ThrowIfFailed(m_device->CreateDescriptorHeap(
@@ -177,7 +191,7 @@ void BxxCraft::LoadPipeline() {
 		//The HANDLE below is a iterator
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
 
-		for (UINT i = 0; i < FrameCount; i++) {
+		for (UINT i = 0; i < FrameBufferSize; i++) {
 			ThrowIfFailed(m_swapChain->GetBuffer(
 				i,
 				IID_PPV_ARGS(&m_renderTargets[i])

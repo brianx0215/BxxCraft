@@ -14,9 +14,13 @@
 #include <d3d12.h>
 #include "d3dx12.h"
 
-#include <string>
+
 #include <wrl.h>
 #include <shellapi.h>
+#include <winnt.h>
+
+#include <string>
 #include <array>
+#include <memory>
 
 #include "Utility.h"

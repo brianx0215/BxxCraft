@@ -2,6 +2,7 @@
 
 #include "BxxApplication.h"
 #include "Mesh.h"
+#include "TimingController.h"
 
 class BxxCraft : public BxxApplication {
 public:
@@ -13,37 +14,19 @@ public:
 	virtual void OnDestory() override;
 
 private:
-	void LoadPipeline();
-	void LoadAssets();
-	void PopulateCommandList();
-	void WaitForPreviousFrame();
+	static const UINT FrameBufferSize = 2;
 
-	////Subfunctions in LoadPipeLine()
-	//void CreateFactory();
-	//void CreateDevice();
-	//void CreateCommandQueue();
-	//void CreateSwapChain();
-	//void CreateDescriptorObjects();
-
-	////Subfunctions in LoadAssets()
-	//void CreateRootSignature();
-	//void CreateShaders();
-	//void CreatePSO();
-	//void CreateCommandList();
-	//void LoadScene();
-	//void CreateSynchronizationObjects();
-
-	static const UINT FrameCount = 2;
-
+	static float s_frameDeltaTime;
+	static int64_t s_FrameStartTick;
 	//Pipeline objects
 	UINT m_rtvDescriptorSize;
 	CD3DX12_VIEWPORT m_viewport;
 	CD3DX12_RECT m_scissorRect;
 	Microsoft::WRL::ComPtr<IDXGISwapChain3> m_swapChain;
-	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator[FrameCount];
+	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator[FrameBufferSize];
 	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
 	Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_commandQueue;
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_renderTargets[FrameBufferSize];
 	Microsoft::WRL::ComPtr<IDXGIFactory4> m_factory;
 	Microsoft::WRL::ComPtr<ID3D12Device> m_device;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSignature;
@@ -71,4 +54,9 @@ private:
 	HANDLE m_fenceEvent;
 	Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
 	UINT64 m_fenceValue;
+
+	void LoadPipeline();
+	void LoadAssets();
+	void PopulateCommandList();
+	void WaitForPreviousFrame();
 };

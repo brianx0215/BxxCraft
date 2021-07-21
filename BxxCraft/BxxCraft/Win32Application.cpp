@@ -1,6 +1,6 @@
 #include "Win32Application.h"
 
-HWND Win32Application::m_hWnd = nullptr;
+HWND Win32Application::s_hWnd = nullptr;
 _Use_decl_annotations_
 int Win32Application::Run(BxxApplication* pApplication, HINSTANCE hInstance, int nCmdShow) {
 	// Parse the command line parameters
@@ -27,7 +27,7 @@ int Win32Application::Run(BxxApplication* pApplication, HINSTANCE hInstance, int
 	};
 	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
 
-	m_hWnd = CreateWindow(
+	s_hWnd = CreateWindow(
 		windowClass.lpszClassName,
 		pApplication->GetAppTitle(),
 		WS_OVERLAPPEDWINDOW,

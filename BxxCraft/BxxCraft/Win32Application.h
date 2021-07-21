@@ -17,7 +17,7 @@ public:
 		_In_ WPARAM wParam,
 		_In_ LPARAM lParam
 	);
-	static HWND GetHwnd() { return m_hWnd; };
+	static HWND GetHwnd() { return s_hWnd; };
 private:
-	static HWND m_hWnd;
+	static HWND s_hWnd;
 };
